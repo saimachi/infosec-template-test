@@ -1,0 +1,78 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: This template creates a user and a group for the AnyRun Lambda CI/CD deployment pipeline.
+
+# Available top-level fields are listed in code completion
+
+# Add Resources Here: uncomment the following lines
+# Resources:
+#   <resource name here>:
+#     Type: # resource type here - available resources are listed in code completion
+#     # <add resource-specific properties underneath this entry  - available properties are listed in code completion>
+#     Properties:
+
+Parameters:
+  GitHubOrg:
+    Type: String
+  RepositoryName:
+    Type: String
+  ProdAWSAccount:
+    Type: String
+
+Resources:
+  PipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: AnyRunLambdaPipelineRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Action: 'sts:AssumeRoleWithWebIdentity'
+            Principal:
+              Federated: !Sub 'arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com'
+            Condition:
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOrg}/${RepositoryName}:*
+      Policies:
+        - PolicyName: GrantS3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 's3:*'
+                Resource:
+                  - 'arn:aws:s3:::aws-sam-cli-managed-default-samclisourcebucket-yfzr9351o255/*'
+        - PolicyName: AllowAllLambdaAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'lambda:*'
+                Resource:
+                  - !Sub 'arn:aws:lambda:us-east-2:${AWS::AccountId}:function:anyrun-lambda-dev'
+        - PolicyName: AllowCloudFormationStackAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'cloudformation:*'
+                Resource:
+                  - !Sub 'arn:aws:cloudformation:us-east-2:${AWS::AccountId}:stack/anyrun-lambda/*'
+                  - 'arn:aws:cloudformation:us-east-2:aws:transform/Serverless-2016-10-31'
+        - PolicyName: ConfigureLambdaExecutionRole
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'iam:*'
+                Resource: 
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/anyrun-lambda-AnyRunLambdaFunctionRole-1KUNTOHVOMX6U'
+        - PolicyName: AssumeProdDeploymentRole
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'sts:AssumeRole'
+                Resource:
+                  - !Sub 'arn:aws:iam::${ProdAWSAccount}:role/AnyRunLambdaPipelineRole'

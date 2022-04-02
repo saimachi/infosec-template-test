@@ -1,0 +1,62 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  sam-anyrun-s3
+
+  Sample SAM Template for sam-anyrun-s3
+
+Parameters:
+  environment:
+    Type: String
+    AllowedValues:
+      - dev
+      - production
+
+Conditions:
+  isProduction: !Equals [ !Ref environment, production ]
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 3
+
+# TODO: Add Secrets Manager secret to the SAM template
+# Replace SecretArn with !Ref
+
+Resources:
+  AnyRunLambdaFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: malware_analysis_lambda/
+      FunctionName: !Sub anyrun-lambda-${environment}
+      Handler: app.lambda_handler
+      Runtime: python3.8
+      Timeout: 60
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Sub anyrun-lambda-trigger-bucket-${environment}
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn:
+              !If
+                - isProduction
+                - !Sub 'arn:aws:secretsmanager:us-east-2:${AWS::AccountId}:secret:prod/AnyRunLambda/AnyRunSecret-JNZWU0'
+                - !Sub 'arn:aws:secretsmanager:us-east-2:${AWS::AccountId}:secret:dev/AnyRunLambda/AnyRunSecret-5ezpOT'
+      Architectures:
+        - x86_64
+      Events:
+        S3Upload:
+          Type: S3
+          Properties:
+            Bucket: !Ref 'SourceS3Bucket'
+            Events: s3:ObjectCreated:*
+      Environment:
+        Variables:
+          KEY_NAME:
+            !If
+              - isProduction
+              - prod/AnyRunLambda/AnyRunSecret
+              - dev/AnyRunLambda/AnyRunSecret
+  SourceS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub anyrun-lambda-trigger-bucket-${environment}

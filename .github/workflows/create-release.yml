@@ -1,0 +1,118 @@
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'malware_analysis_lambda/**'
+      - 'Tests/**'
+      - 'template.yaml'
+      - '.github/workflows/create-release.yml'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-2
+#  AWS_ROLE_DEV: ${{ secrets.AWS_ROLE_DEV }}
+#  AWS_ROLE_PROD: ${{ secrets.AWS_ROLE_PROD }}
+  KEY_NAME: dev/AnyRunLambda/AnyRunSecret
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    environment: development
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+        with:
+          python-version: '3.8'
+      - name: Run unit tests
+        run: |
+          pip install -r ./Tests/requirements.txt
+          python -m unittest Tests.unit.test_lambda
+      - uses: aws-actions/setup-sam@v1
+      - uses: aws-actions/configure-aws-credentials@v1
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Build SAM app
+        run: sam build --use-container
+      - name: ZIP build files
+        run: zip -r build.zip .aws-sam/build samconfig-staging.toml samconfig-prod.toml
+      - name: Upload build artifacts to persistent storage
+        uses: actions/upload-artifact@v2
+        with:
+          name: built-function
+          path: build.zip
+  # Note that AWS credentials can be set in the environment as well (e.g. separate staging and production AWS accounts)
+  # TODO: Run integration tests
+  deploy-staging:
+    runs-on: ubuntu-latest
+    environment: development
+    needs: build-test
+    steps:
+      - name: Download build artifacts from persistent storage
+        uses: actions/download-artifact@v2
+        with:
+          name: built-function
+      - name: Unzip build files
+        run: unzip build.zip
+      - uses: aws-actions/setup-sam@v1
+      - uses: aws-actions/configure-aws-credentials@v1
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Deploy to AWS staging environment
+        run: sam deploy --config-file samconfig-staging.toml --no-fail-on-empty-changeset
+#  create-release:
+#    runs-on: ubuntu-latest
+#    needs: deploy-staging
+#    permissions:
+#      contents: write
+#    steps:
+#      - name: Download build artifacts from persistent storage
+#        uses: actions/download-artifact@v2
+#        with:
+#          name: built-function
+#      - name: Push tag to current version
+#        id: tag_version
+#        uses: mathieudutour/github-tag-action@v6.0
+#        with:
+#          github_token: ${{ secrets.PIPELINE_PAT }}
+#      - name: Create release on GitHub
+#        uses: ncipollo/release-action@v1
+#        with:
+#          tag: ${{ steps.tag_version.outputs.new_tag }}
+#          artifacts: build.zip
+#          token: ${{ secrets.PIPELINE_PAT }}
+  deploy-production:
+    runs-on: ubuntu-latest
+    environment: production
+    needs: deploy-staging
+    steps:
+      - name: Download build artifacts from persistent storage
+        uses: actions/download-artifact@v2
+        with:
+          name: built-function
+      - name: Unzip build files
+        run: unzip build.zip
+      - uses: aws-actions/setup-sam@v1
+      - uses: aws-actions/configure-aws-credentials@v1
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_PROD }}
+          aws-region: ${{ env.AWS_REGION }}
+#      - name: Assume production deployment role
+#        run: |
+#          CREDENTIAL=$(aws sts assume-role \
+#              --role-arn $AWS_ROLE_PROD \
+#              --role-session-name ProductionDeploymentPermissions \
+#              --output text \
+#              --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken,Expiration]')
+#          export AWS_ACCESS_KEY_ID=$(echo $CREDENTIAL | awk '{print $1}')
+#          export AWS_SECRET_ACCESS_KEY=$(echo $CREDENTIAL | awk '{print $2}')
+#          export AWS_SESSION_TOKEN=$(echo $CREDENTIAL | awk '{print $3}')
+#          export SESSION_EXPIRATION=$(echo $CREDENTIAL | awk '{print $4}')
+      - name: Deploy to AWS staging environment
+        run: sam deploy --config-file samconfig-prod.toml --no-fail-on-empty-changeset

@@ -1,0 +1,11 @@
+version = 0.1
+[default]
+[default.deploy]
+[default.deploy.parameters]
+stack_name = "anyrun-lambda"
+s3_prefix = "anyrun-lambda-code-prod"
+s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket-1oorehs91oysh"
+region = "us-east-2"
+capabilities = "CAPABILITY_IAM"
+image_repositories = []
+parameter_overrides="environment=production"
